@@ -133,7 +133,7 @@ public class Main
 
     public class MyStartListener implements ActionListener
     {
-        public void actionPerfromed(ActionEvent a)
+        public void actionPerformed(ActionEvent a)
         {
             buildTrackAndStart();
         }
@@ -141,7 +141,7 @@ public class Main
 
     public class MyStopListener implements ActionListener
     {
-        public void actionPerfromed(ActionEvent a)
+        public void actionPerformed(ActionEvent a)
         {
             sequencer.stop();
         }
@@ -149,7 +149,7 @@ public class Main
 
     public class MyUpTempoListener implements ActionListener
     {
-        public void actionPerfromed(ActionEvent a)
+        public void actionPerformed(ActionEvent a)
         {
             float tempoFactor = sequencer.getTempoFactor();
             sequencer.setTempoFactor((float)(tempoFactor * 1.03));
@@ -158,7 +158,7 @@ public class Main
 
     public class MyDownTempoListener implements ActionListener
     {
-        public void actionPerfromed(ActionEvent a)
+        public void actionPerformed(ActionEvent a)
         {
             float tempoFactor = sequencer.getTempoFactor();
             sequencer.setTempoFactor((float)(tempoFactor * .97));
