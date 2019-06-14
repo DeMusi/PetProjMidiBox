@@ -1,19 +1,34 @@
 import javax.sound.midi.*;
 import javax.swing.*;
+import javax.swing.event.ListSelectionEvent;
+import javax.swing.event.ListSelectionListener;
 import java.awt.*;
 import java.io.*;
+import java.net.InetAddress;
+import java.net.Socket;
 import java.util.*;
 import java.awt.event.*;
 
 public class Main
 {
-    // Панель где расположены дорожки с драмами
-   JPanel mainPanel;
-   ArrayList<JCheckBox> checkboxList;
-   Sequencer sequencer;
-   Sequence sequence;
-   Track track;
-   JFrame theFrame;
+
+    JFrame theFrame;
+    JPanel mainPanel; // Панель где расположены дорожки с драмами
+    JList incomingList;
+    JTextField userMessage;
+    ArrayList<JCheckBox> checkboxList;
+    int nextNum;
+    Vector<String> listVector = new Vector<String>();
+    String userName;
+    ObjectOutputStream out;
+    ObjectInputStream in;
+    HashMap<String, boolean[]> otherSeqsMap = new HashMap<String, boolean[]>();
+
+    Sequencer sequencer;
+    Sequence sequence;
+    Sequence mySequence = null;
+    Track track;
+
 
    String[] instrumentNames = {"Bass Drum", "Closed Hi-Hat",
            "Open Hi-Hat", "Acoustic Share", "Crash Cymbal", "Hand Clap",
@@ -24,7 +39,29 @@ public class Main
 
     public static void main(String[] args)
     {
-        new Main().buildGUI();
+        String compName = null;
+        try {
+            compName = InetAddress.getLocalHost().getHostName();
+            System.out.println(compName);
+        } catch(Exception ex) {ex.printStackTrace();}
+        new Main().startUp(compName);
+        //new Main().buildGUI();
+    }
+
+    public void startUp(String name) {
+        userName = name;
+        // Открываю соединение с сервом
+        try{
+            Socket sock = new Socket("127.0.0.1", 4242);
+            out = new ObjectOutputStream(sock.getOutputStream());
+            in = new ObjectInputStream(sock.getInputStream());
+            Thread remote = new Thread(new RemoteReader());
+            remote.start();
+        } catch(Exception ex) {
+            System.out.println("Cant connect!");
+        }
+        setUpMidi();
+        buildGUI();
     }
 
     public void buildGUI()
@@ -37,8 +74,8 @@ public class Main
         background.setBorder(BorderFactory.createEmptyBorder(10,10,10,10));
 
         checkboxList = new ArrayList<JCheckBox>();
-        Box buttonBox = new Box(BoxLayout.Y_AXIS);
 
+        Box buttonBox = new Box(BoxLayout.Y_AXIS);
         // 4 кнопки Старт, Стоп, Выше/Ниже скорость
         JButton start = new JButton("Start");
         // Привязываем к кнопке старт, класс слушатель который будет обрабатывать эвенты
@@ -58,13 +95,19 @@ public class Main
         downTempo.addActionListener(new MyDownTempoListener());
         buttonBox.add(downTempo);
 
-        JButton SerializeIt = new JButton("Serialize");
-        SerializeIt.addActionListener(new MySendListener());
-        buttonBox.add(SerializeIt);
+        JButton SendIt = new JButton("Send");
+        SendIt.addActionListener(new MySendListener());
+        buttonBox.add(SendIt);
 
-        JButton DeSerializeIt = new JButton("De Serialize");
-        DeSerializeIt.addActionListener(new MyReadListener());
-        buttonBox.add(DeSerializeIt);
+        userMessage = new JTextField();
+        buttonBox.add(userMessage);
+
+        incomingList = new JList();
+        incomingList.addListSelectionListener(new MyListSelectionListener());
+        incomingList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        JScrollPane theList = new JScrollPane(incomingList);
+        buttonBox.add(theList);
+        incomingList.setListData(listVector);
 
         // Размещение всех 16 названий инструментов в колонке nameBox по вертикали(Y_Axis)
         Box nameBox = new Box(BoxLayout.Y_AXIS);
@@ -77,7 +120,6 @@ public class Main
         background.add(BorderLayout.WEST, nameBox);
 
         theFrame.getContentPane().add(background);
-
         GridLayout grid = new GridLayout(16, 16);
         // отступы по вертикали и горизонтали
         grid.setVgap(1);
@@ -95,8 +137,6 @@ public class Main
             mainPanel.add(c);
         }
 
-        setUpMidi();
-
         theFrame.setBounds(50,50,300,300);
         theFrame.pack();
         theFrame.setVisible(true);
@@ -106,30 +146,28 @@ public class Main
     // Добавление в дорожку
     public void buildTrackAndStart()
     {
-        int[] trackList = null;
-
+        ArrayList<Integer> trackList = null;
         sequence.deleteTrack(track);
         track = sequence.createTrack();
 
         for(int i = 0; i < 16; i++)
         {
-            trackList = new int[16];
-            int key = instruments[i];
+            trackList = new ArrayList<Integer>();
 
             for(int j = 0; j < 16; j++)
             {
                 JCheckBox jc = (JCheckBox)checkboxList.get(j+(16*i));
                 if(jc.isSelected())
                 {
-                    trackList[j] = key;
+                    int key = instruments[i];
+                    trackList.add(new Integer(key));
                 } else {
-                    trackList[j] = 0;
+                    trackList.add(null);
                 }
             }
             makeTracks(trackList);
-            track.add(makeEvent(176, 1,127,0,16));
         }
-
+       // track.add(makeEvent(176, 1,127,0,16));
         track.add(makeEvent(192,9,1,0,15));
         try {
             sequencer.setSequence(sequence);
@@ -175,16 +213,18 @@ public class Main
     }
 
     // Создает события за каждый проход
-    public void makeTracks(int[] list)
+    public void makeTracks(ArrayList list)
     {
+        Iterator it = list.iterator();
         for(int i = 0; i < 16; i++)
         {
-            int key = list[i];
-            if(key != 0)
+            Integer num = (Integer)it.next();
+            if(num != null)
             {
+                int numKey = num.intValue();
                 // событие включения и выключения
-                track.add(makeEvent(144, 9, key, 100, i));
-                track.add(makeEvent(128, 9, key, 100, i+1));
+                track.add(makeEvent(144, 9, numKey, 100, i));
+                track.add(makeEvent(128, 9, numKey, 100, i+1));
             }
         }
     }
@@ -214,8 +254,6 @@ public class Main
     public class MySendListener implements ActionListener{
         public void actionPerformed(ActionEvent a) {
             boolean[] checkboxState = new boolean[256];
-            JFileChooser fileSave = new JFileChooser();
-            fileSave.showSaveDialog(theFrame);
             // пробегает по всем дорожкам считывая состояния чекбоксов
             for (int i = 0; i < 256; i++) {
                 JCheckBox check = (JCheckBox) checkboxList.get(i);
@@ -223,14 +261,69 @@ public class Main
                     checkboxState[i] = true;
                 }
             }
-            if (fileSave.getSelectedFile() != null) {
-                try {
-                    FileOutputStream fileStream = new FileOutputStream(fileSave.getSelectedFile());
-                    ObjectOutputStream os = new ObjectOutputStream(fileStream);
-                    os.writeObject(checkboxState);
-                } catch (Exception ex) {
-                    ex.printStackTrace();
+
+            String messageToSend = null;
+            try{
+                out.writeObject(userName + nextNum++ + ": " + userMessage.getText() );
+                out.writeObject(checkboxState);
+            } catch(Exception ex) {
+                System.out.println("Сорэ, не получается отправить на серв.");
+            }
+            userMessage.setText("");
+        }
+    }
+
+    public class MyListSelectionListener implements ListSelectionListener{
+        public void valueChanged(ListSelectionEvent le){
+            if(!le.getValueIsAdjusting()){
+                String selected = (String) incomingList.getSelectedValue();
+                if(selected != null){
+                    // Переход к отображению и изменяет последовательность
+                    boolean[] selectedState = (boolean[]) otherSeqsMap.get(selected);
+                    changeSequence(selectedState);
+                    sequencer.stop();
+                    buildTrackAndStart();
                 }
+            }
+        }
+    }
+
+    public class RemoteReader implements Runnable{
+        boolean[] checkboxState = null;
+        String nameToShow = null;
+        Object obj = null;
+
+        @Override
+        public void run() {
+            try{
+                while((obj=in.readObject()) != null) {
+                    System.out.println("получил объект от серва");
+                    System.out.println(obj.getClass());
+                    String nameToShow = (String) obj;
+                    checkboxState = (boolean[]) in.readObject();
+                    otherSeqsMap.put(nameToShow, checkboxState);
+                    listVector.add(nameToShow);
+                    incomingList.setListData(listVector);
+                }
+            } catch(Exception ex) { ex.printStackTrace(); }
+        }
+    }
+
+    public class MyPlayMineListener implements ActionListener{
+        public void actionPerformed(ActionEvent a){
+            if(mySequence != null){
+                sequence = mySequence;
+            }
+        }
+    }
+
+    public void changeSequence(boolean[] checkboxState){
+        for(int i = 0; i < 256; i++){
+            JCheckBox check = (JCheckBox)checkboxList.get(i);
+            if(checkboxState[i]){
+                check.setSelected(true);
+            } else {
+                check.setSelected(false);
             }
         }
     }
